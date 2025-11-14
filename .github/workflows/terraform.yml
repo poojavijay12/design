@@ -1,0 +1,38 @@
+name: Terraform Deploy
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'infra/**'
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT }}
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.7
+
+      - name: Terraform Init
+        working-directory: infra/terraform
+        run: terraform init -input=false
+
+      - name: Terraform Apply
+        working-directory: infra/terraform
+        env:
+          TF_VAR_gcp_project: ${{ secrets.GCP_PROJECT }}
+          TF_VAR_gcp_region: ${{ secrets.GCP_REGION }}
+          TF_VAR_gcp_zone: ${{ secrets.GCP_ZONE }}
+          TF_VAR_container_image: ${{ secrets.CONTAINER_IMAGE }}
+        run: terraform apply -auto-approve -input=false
