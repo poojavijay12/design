@@ -15,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Authenticate with GCP (service account)
+      - name: Authenticate to GCP
         uses: google-github-actions/auth@v1
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
@@ -25,47 +25,33 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT }}
 
-      - name: Debug: show active account & token (masked)
+      - name: Debug: show active account & token length
         run: |
-          echo "Active account (masked):"
           gcloud auth list --filter=status:ACTIVE --format="value(account)"
-          echo "Access token length:"
           gcloud auth print-access-token | wc -c
 
-      - name: Configure Docker for Artifact Registry (region-specific)
+      - name: Configure Docker for Artifact Registry
         run: |
           set -euo pipefail
-          REGION="$(printf '%s' "${{ secrets.GCP_REGION }}" | tr -d '\r\n' | xargs)"
+          REGION="$(printf '%s' '${{ secrets.GCP_REGION }}' | tr -d '\r\n' | xargs)"
           echo "Configuring docker for: ${REGION}-docker.pkg.dev"
           gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
-        env:
-          GCP_REGION: ${{ secrets.GCP_REGION }}
 
-      - name: Build and push image (sanitized)
+      - name: Build and push image
         id: build
         run: |
           set -euo pipefail
-
-          # sanitize secrets (remove CR/LF and trim)
-          REGION="$(printf '%s' "${{ secrets.GCP_REGION }}" | tr -d '\r\n' | xargs)"
-          PROJECT="$(printf '%s' "${{ secrets.GCP_PROJECT }}" | tr -d '\r\n' | xargs)"
-          REPO="$(printf '%s' "${{ secrets.ARTIFACT_REPO }}" | tr -d '\r\n' | xargs)"
+          REGION="$(printf '%s' '${{ secrets.GCP_REGION }}' | tr -d '\r\n' | xargs)"
+          PROJECT="$(printf '%s' '${{ secrets.GCP_PROJECT }}' | tr -d '\r\n' | xargs)"
+          REPO="$(printf '%s' '${{ secrets.ARTIFACT_REPO }}' | tr -d '\r\n' | xargs)"
           SHA="${GITHUB_SHA}"
-
-          echo "region len: $(printf '%s' \"$REGION\" | wc -c)"
-          echo "project len: $(printf '%s' \"$PROJECT\" | wc -c)"
-          echo "repo len: $(printf '%s' \"$REPO\" | wc -c)"
-
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/fastapi-app:${SHA}"
-          echo "Building image: $IMAGE"
+          echo "Building: $IMAGE"
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
-
-          # export for downstream workflows
           echo "IMAGE=$IMAGE" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_SHA: ${{ github.sha }}
 
       - name: Show pushed image
-        run: |
-          echo "Pushed image: ${{ steps.build.outputs.IMAGE }}"
+        run: echo "Pushed: ${{ steps.build.outputs.IMAGE }}"
