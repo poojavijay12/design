@@ -11,6 +11,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # pass these secrets into the job environment (safe)
+    env:
+      GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
+      GCP_REGION:  ${{ secrets.GCP_REGION }}
+      ARTIFACT_REPO: ${{ secrets.ARTIFACT_REPO }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,36 +31,30 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT }}
 
-      - name: Debug auth (masked)
+      - name: Debug gcloud auth
         run: |
-          echo "Active account (masked):"
+          echo "active account:"
           gcloud auth list --filter=status:ACTIVE --format="value(account)"
-          echo "Access token length:"
+          echo "token length:"
           gcloud auth print-access-token | wc -c
 
-      - name: Configure Docker for Artifact Registry
-        env:
-          GCP_REGION: ${{ secrets.GCP_REGION }}
+      - name: Configure docker for artifact registry
         run: |
           set -euo pipefail
+          # sanitize the REGION from env
           REGION="$(printf '%s' "$GCP_REGION" | tr -d '\r\n' | xargs)"
-          echo "Configuring docker for: ${REGION}-docker.pkg.dev"
+          echo "Configuring docker for ${REGION}-docker.pkg.dev"
           gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
       - name: Build and push image
         id: build
-        env:
-          GCP_REGION: ${{ secrets.GCP_REGION }}
-          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
-          ARTIFACT_REPO: ${{ secrets.ARTIFACT_REPO }}
-          GITHUB_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
           REGION="$(printf '%s' "$GCP_REGION" | tr -d '\r\n' | xargs)"
           PROJECT="$(printf '%s' "$GCP_PROJECT" | tr -d '\r\n' | xargs)"
           REPO="$(printf '%s' "$ARTIFACT_REPO" | tr -d '\r\n' | xargs)"
-          SHA="$(printf '%s' "$GITHUB_SHA" | tr -d '\r\n' | xargs)"
+          SHA="$(git rev-parse --verify --short HEAD || echo "${GITHUB_SHA}")"
 
           echo "region len: $(printf '%s' "$REGION" | wc -c)"
           echo "project len: $(printf '%s' "$PROJECT" | wc -c)"
@@ -62,10 +62,17 @@ jobs:
 
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/fastapi-app:${SHA}"
           echo "Building image: $IMAGE"
+
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
 
+          # set the action output (GITHUB_OUTPUT is provided by runner)
           echo "IMAGE=$IMAGE" >> "$GITHUB_OUTPUT"
 
+        # github provides GITHUB_OUTPUT to steps automatically
+        env:
+          GITHUB_OUTPUT: ${{ github.output }}
+
       - name: Show pushed image
-        run: echo "Pushed: ${{ steps.build.outputs.IMAGE }}"
+        run: |
+          echo "Pushed image: ${{ steps.build.outputs.IMAGE }}"
